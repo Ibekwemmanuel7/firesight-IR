@@ -1,0 +1,19 @@
+{
+  "variant": "No physics loss",
+  "val_acc": 0.9541296461805373,
+  "nf_precision": 0.5150976909413855,
+  "nf_recall": 0.9783525442788867,
+  "nf_f1": 0.6748763696305634,
+  "wf_precision": 0.998931439257036,
+  "wf_recall": 0.9491026904356654,
+  "wf_f1": 0.97337978027026,
+  "fa_precision": 0.9743454577402917,
+  "fa_recall": 0.9992791493962876,
+  "fa_f1": 0.9866548042704626,
+  "fa_auc": 0.9999870950010656,
+  "wf_auc": 0.9954742991455469,
+  "best_val_loss": 0.05103338195955905,
+  "best_epoch": 17,
+  "log_path": "/content/drive/MyDrive/firesight-ir/models/ablations/no_physics_loss_log.json",
+  "completed": true
+}

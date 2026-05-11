@@ -1,0 +1,19 @@
+{
+  "variant": "No ERA5 (ATM)",
+  "val_acc": 0.9626202618158877,
+  "nf_precision": 0.5655217320527429,
+  "nf_recall": 0.9766657295473714,
+  "nf_f1": 0.7162886597938144,
+  "wf_precision": 0.9987713841368585,
+  "wf_recall": 0.9588372301352683,
+  "wf_f1": 0.9783969895946008,
+  "fa_precision": 0.9829817408260947,
+  "fa_recall": 0.9992791493962876,
+  "fa_f1": 0.9910634495084897,
+  "fa_auc": 0.9999889473321343,
+  "wf_auc": 0.9960067103800738,
+  "best_val_loss": 0.11686999251753927,
+  "best_epoch": 28,
+  "log_path": "/content/drive/MyDrive/firesight-ir/models/ablations/no_era5_atm_log.json",
+  "completed": true
+}

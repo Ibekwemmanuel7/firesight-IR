@@ -1,0 +1,19 @@
+{
+  "variant": "No surface (SRF)",
+  "val_acc": 0.806989643026129,
+  "nf_precision": 0.42728506229184654,
+  "nf_recall": 0.9738543716615126,
+  "nf_f1": 0.5939643347050755,
+  "wf_precision": 0.9944801512287335,
+  "wf_recall": 0.7854519394428021,
+  "wf_f1": 0.877692320525868,
+  "fa_precision": 0.35331962592027594,
+  "fa_recall": 0.9599927914939629,
+  "fa_f1": 0.5165325317560361,
+  "fa_auc": 0.9736973842645346,
+  "wf_auc": 0.9536722590173339,
+  "best_val_loss": 0.2857705473789773,
+  "best_epoch": 12,
+  "log_path": "/content/drive/MyDrive/firesight-ir/models/ablations/no_surface_srf_log.json",
+  "completed": true
+}
