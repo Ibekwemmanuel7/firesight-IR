@@ -38,6 +38,9 @@ matplotlib>=3.8
 xgboost>=2.0
 lightgbm>=4.0
 
+# ── Hugging Face Hub (model download / upload) ───────────────────────────────
+huggingface_hub>=0.20
+
 # ── Dashboard (optional) ─────────────────────────────────────────────────────
 streamlit>=1.30
 

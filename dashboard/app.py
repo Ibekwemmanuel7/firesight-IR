@@ -16,13 +16,18 @@ The app expects firesight_pinn_best.pt in the same directory,
 or set MODEL_PATH env var to its location.
 """
 
-import os, json, warnings, io, time
+import os, json, sys, warnings, io, time
 warnings.filterwarnings('ignore')
+
+# Make the firesight_ir package importable when this script runs from
+# dashboard/app.py inside the cloned GitHub repo.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 import numpy as np
 import pandas as pd
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib
 matplotlib.use('Agg')
@@ -31,6 +36,9 @@ import matplotlib.gridspec as gridspec
 from scipy import stats
 import streamlit as st
 from sklearn.metrics import roc_curve, roc_auc_score
+
+# FireSight-IR package (lifted from notebooks/03a_pinn_training_final.ipynb)
+from firesight_ir import FireSightPINN, CLASS_NAMES as _PKG_CLASS_NAMES
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -128,11 +136,14 @@ st.markdown(STYLE, unsafe_allow_html=True)
 # ── Constants ──────────────────────────────────────────────────────────────────
 MODEL_PATH = os.environ.get('MODEL_PATH', 'firesight_pinn_best.pt')
 DEVICE     = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-CLASS_NAMES  = ['Non-fire', 'Wildfire', 'False-alarm']
+CLASS_NAMES  = list(_PKG_CLASS_NAMES)  # ('Non-fire', 'Wildfire', 'False-alarm')
 CLASS_COLORS = ['#14B8A6', '#FF6B1A', '#2563EB']
 CLASS_BADGES = ['badge-non-fire', 'badge-wildfire', 'badge-false-alarm']
 
-N_ATM=16; N_SRF=20; N_DERIVED=6; N_CLASSES=3; DROPOUT=0.3
+# Hugging Face Hub fallback. If MODEL_PATH does not exist locally and the user
+# has not uploaded a file, the dashboard downloads from here on first load.
+HF_REPO_ID  = 'emmanuelibekwe5525/firesight-ir'
+HF_FILENAME = 'firesight_pinn_best.pt'
 
 BG, PANEL, BORDER = '#080E14', '#0F1923', '#1E2D3D'
 TEXT, SUBTEXT = '#E8F4FD', '#6B8FA8'
@@ -146,37 +157,9 @@ PLT_RC = {
 }
 plt.rcParams.update(PLT_RC)
 
-# ── Model architecture ────────────────────────────────────────────────────────
-class ResidualBlock(nn.Module):
-    def __init__(self,i,o,d=0.2):
-        super().__init__()
-        self.net=nn.Sequential(nn.Linear(i,o),nn.BatchNorm1d(o),nn.ReLU(),nn.Dropout(d),nn.Linear(o,o),nn.BatchNorm1d(o))
-        self.proj=nn.Linear(i,o) if i!=o else nn.Identity()
-    def forward(self,x): return F.relu(self.net(x)+self.proj(x))
-
-class CNNBranch(nn.Module):
-    def __init__(self,c=4,d=0.2):
-        super().__init__()
-        self.enc=nn.Sequential(
-            nn.Conv2d(c,32,3,padding=1),nn.BatchNorm2d(32),nn.ReLU(True),nn.Conv2d(32,32,3,padding=1),nn.BatchNorm2d(32),nn.ReLU(True),nn.MaxPool2d(2),nn.Dropout2d(0.1),
-            nn.Conv2d(32,64,3,padding=1),nn.BatchNorm2d(64),nn.ReLU(True),nn.Conv2d(64,64,3,padding=1),nn.BatchNorm2d(64),nn.ReLU(True),nn.MaxPool2d(2),nn.Dropout2d(0.1),
-            nn.Conv2d(64,128,3,padding=1),nn.BatchNorm2d(128),nn.ReLU(True),nn.MaxPool2d(2))
-        self.gap=nn.AdaptiveAvgPool2d(1); self.drop=nn.Dropout(d)
-    def forward(self,x): return self.drop(self.gap(self.enc(x)).flatten(1))
-
-class FireSightPINN(nn.Module):
-    def __init__(self,na=16,ns=20,nd=6,nc=3,dr=0.3):
-        super().__init__()
-        self.cnn=CNNBranch(4,dr)
-        self.atm=nn.Sequential(ResidualBlock(na,64),ResidualBlock(64,32))
-        self.srf=nn.Sequential(ResidualBlock(ns,64),ResidualBlock(64,32))
-        self.der=nn.Sequential(nn.Linear(nd,32),nn.BatchNorm1d(32),nn.ReLU(),nn.Dropout(0.1),nn.Linear(32,16),nn.BatchNorm1d(16),nn.ReLU())
-        self.fusion=nn.Sequential(nn.Linear(208,128),nn.BatchNorm1d(128),nn.ReLU(),nn.Dropout(dr),nn.Linear(128,64),nn.BatchNorm1d(64),nn.ReLU(),nn.Dropout(dr))
-        self.cls=nn.Linear(64,nc)
-        self.trans=nn.Sequential(nn.Linear(64,16),nn.ReLU(),nn.Linear(16,1),nn.Sigmoid())
-    def forward(self,p,a,s,d):
-        f=self.fusion(torch.cat([self.cnn(p),self.atm(a),self.srf(s),self.der(d)],dim=1))
-        return self.cls(f),self.trans(f)
+# Model architecture is imported from the firesight_ir package above.
+# See firesight_ir/model.py for the FireSightPINN, ResidualBlock, and
+# CNNBranch class definitions.
 
 # ── Feature column definitions ─────────────────────────────────────────────────
 ATM_COLS = [
@@ -200,15 +183,32 @@ DER_COLS = ['aod_3700nm','lifted_index','doy_sin','doy_cos','bt_i4_anom_norm','b
 # ── Load model ─────────────────────────────────────────────────────────────────
 @st.cache_resource(show_spinner=False)
 def load_model(path):
+    """Load the trained checkpoint from a local path."""
     if not os.path.exists(path):
         return None, None
-    import numpy._core.multiarray
-    torch.serialization.add_safe_globals([numpy._core.multiarray.scalar])
+    try:
+        import numpy._core.multiarray
+        torch.serialization.add_safe_globals([numpy._core.multiarray.scalar])
+    except (ImportError, AttributeError):
+        pass  # older numpy / torch combinations
     ckpt = torch.load(path, map_location=DEVICE, weights_only=False)
-    model = FireSightPINN(N_ATM,N_SRF,N_DERIVED,N_CLASSES,DROPOUT).to(DEVICE)
-    model.load_state_dict(ckpt['model_state_dict'])
+    model = FireSightPINN().to(DEVICE)
+    state = ckpt['model_state_dict'] if 'model_state_dict' in ckpt else ckpt
+    model.load_state_dict(state)
     model.eval()
     return model, ckpt
+
+
+@st.cache_resource(show_spinner='Downloading model from Hugging Face Hub...')
+def load_model_from_hub(repo_id=HF_REPO_ID, filename=HF_FILENAME):
+    """Download the checkpoint from HF Hub and load it. Cached so the
+    download only happens once per Streamlit session."""
+    try:
+        from huggingface_hub import hf_hub_download
+    except ImportError:
+        return None, None
+    path = hf_hub_download(repo_id=repo_id, filename=filename)
+    return load_model(path)
 
 # ── Inference ──────────────────────────────────────────────────────────────────
 @torch.no_grad()
@@ -508,16 +508,24 @@ with st.sidebar:
 # ══════════════════════════════════════════════════════════════════════════════
 model, ckpt_info = None, None
 
-# Try uploaded model first
+# Priority: 1) user-uploaded file, 2) local MODEL_PATH, 3) Hugging Face Hub.
 if model_file is not None:
     tmp_path = '/tmp/uploaded_model.pt'
     with open(tmp_path, 'wb') as f:
         f.write(model_file.read())
     model, ckpt_info = load_model(tmp_path)
     if model:
-        st.sidebar.success(f"✓ Model loaded (epoch {ckpt_info.get('epoch','?')})")
+        st.sidebar.success(f"Loaded uploaded checkpoint (epoch {ckpt_info.get('epoch','?')})")
 elif os.path.exists(MODEL_PATH):
     model, ckpt_info = load_model(MODEL_PATH)
+else:
+    # Fallback for cloud deployments: pull the trained checkpoint from HF Hub.
+    model, ckpt_info = load_model_from_hub()
+    if model:
+        st.sidebar.success(
+            f"Loaded checkpoint from huggingface.co/{HF_REPO_ID} "
+            f"(epoch {ckpt_info.get('epoch','?')})"
+        )
 
 # ══════════════════════════════════════════════════════════════════════════════
 # HEADER
@@ -544,7 +552,7 @@ if model:
     pca = ckpt_info.get('per_class_acc', {})
     st.markdown(f"""
     <div class="info-box" style="border-left:3px solid #22C55E; margin-bottom:16px;">
-        ✅ &nbsp;<b>Model loaded</b> — Epoch {ep} &nbsp;|&nbsp;
+        <b>Model loaded.</b> &nbsp;Epoch {ep} &nbsp;|&nbsp;
         Val loss {vl:.4f} &nbsp;|&nbsp;
         Val accuracy {va:.1%} &nbsp;|&nbsp;
         WF recall {pca.get('wf',0):.1%} &nbsp;|&nbsp;
@@ -555,7 +563,7 @@ if model:
 else:
     st.markdown("""
     <div class="info-box" style="border-left:3px solid #F59E0B; margin-bottom:16px;">
-        ⚠️ &nbsp;<b>No model loaded</b> — Upload <code>firesight_pinn_best.pt</code>
+        <b>No model loaded.</b> &nbsp;Upload <code>firesight_pinn_best.pt</code>
         in the sidebar, or the demo will run with random predictions.
     </div>
     """, unsafe_allow_html=True)
@@ -602,7 +610,7 @@ with tab_classify:
     df_input = None
     if use_demo or not uploaded:
         df_input = make_demo_data(500)
-        st.info("Using synthetic demo data — 500 pixels (80% wildfire, 15% false-alarm, 5% non-fire)")
+        st.info("Using synthetic demo data: 500 pixels (80% wildfire, 15% false-alarm, 5% non-fire)")
     elif uploaded:
         try:
             if uploaded.name.endswith('.parquet'):
@@ -729,7 +737,7 @@ with tab_explore:
         'Note': [
             'of 30 epochs', 'weighted CE + physics loss', '2023 fully held-out year',
             'above 0.95 target', 'very few false wildfire predictions', 'val 2023',
-            'near-perfect', '', 'perfect separation — no 2nd stage needed',
+            'near-perfect', '', 'perfect separation, no 2nd stage needed',
             '', 'val 2023',
             '20% random holdout', 'test set',
         ]
@@ -784,9 +792,9 @@ with tab_about:
     </p>
     <p>
     FireSat's MWIR/LWIR sensors correctly detected gas flares in Libya, urban heat
-    islands in Sydney, and a 2020 burn scar in Ontario being warmed by the sun — but
-    these all registered as potential fire detections. FireSight-IR was built to
-    discriminate these false-alarm sources from genuine wildfires.
+    islands in Sydney, and a 2020 burn scar in Ontario being warmed by the sun.
+    All of these registered as potential fire detections. FireSight-IR was built
+    to discriminate these false-alarm sources from genuine wildfires.
     </p>
     </div>
 
@@ -816,18 +824,21 @@ with tab_about:
     <div class="info-box" style="margin-top:16px;">
     <h4 style="color:#E8F4FD; margin-top:0;">Pipeline modules</h4>
     <div style="font-size:0.85rem; line-height:2;">
-    ✅ <b>Module 1a</b> — VIIRS + FIRMS download (1,149,722 fire pixels)<br>
-    ✅ <b>Module 1b</b> — ERA5 atmospheric co-location (16 features, 100% coverage)<br>
-    ✅ <b>Module 1c v2</b> — MODIS MCD12Q1 land cover + OSM infrastructure<br>
-    ✅ <b>Module 2 v2</b> — Feature engineering, robust normalisation, class weights<br>
-    ✅ <b>Module 3a</b> — Multi-branch PINN training (epoch 23, val_loss=0.1149)<br>
-    ➡️ <b>Module 4</b> — This dashboard (operational inference)<br>
+    <b>Module 1a:</b> VIIRS + FIRMS download (1,149,722 fire pixels)<br>
+    <b>Module 1b:</b> ERA5 atmospheric co-location (16 features, 100% coverage)<br>
+    <b>Module 1c v2:</b> MODIS MCD12Q1 land cover + OSM infrastructure<br>
+    <b>Module 2 v2:</b> Feature engineering, robust normalisation, class weights<br>
+    <b>Module 3a:</b> Multi-branch PINN training (epoch 23, val_loss=0.1149)<br>
+    <b>Module 3b:</b> Ablation study (no-physics, no-ERA5, no-surface variants)<br>
+    <b>Module 4:</b> This dashboard (operational inference)<br>
     </div>
     </div>
 
     <div style="margin-top:16px; font-size:0.82rem; color:#6B8FA8;">
     <b>Author:</b> Emmanuel Ibekwe &nbsp;·&nbsp;
-    <a href="https://github.com/Ibekwemmanuel7" style="color:#FF6B1A;">github.com/Ibekwemmanuel7</a>
+    <a href="https://github.com/Ibekwemmanuel7/firesight-IR" style="color:#FF6B1A;">GitHub</a>
+    &nbsp;·&nbsp;
+    <a href="https://huggingface.co/emmanuelibekwe5525/firesight-ir" style="color:#FF6B1A;">Hugging Face</a>
     &nbsp;·&nbsp; M.Sc. Atmospheric Science, Texas A&M University
     </div>
     """, unsafe_allow_html=True)
