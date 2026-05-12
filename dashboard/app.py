@@ -668,24 +668,24 @@ with tab_classify:
             """, unsafe_allow_html=True)
 
         # ── Charts ────────────────────────────────────────────────────────────
+        # st.pyplot expects a matplotlib Figure object directly. The dark
+        # background is already set via plt.rcParams.
         ch1, ch2 = st.columns(2)
         with ch1:
-            st.pyplot(fig_to_bytes(plot_class_distribution(result)),
-                      use_container_width=True)
+            st.pyplot(plot_class_distribution(result), use_container_width=True)
         with ch2:
-            st.pyplot(fig_to_bytes(plot_probability_distribution(probs)),
-                      use_container_width=True)
+            st.pyplot(plot_probability_distribution(probs), use_container_width=True)
 
         # BTD analysis
         st.markdown('<div class="section-header">Physics constraint analysis</div>', unsafe_allow_html=True)
-        st.pyplot(fig_to_bytes(plot_btd_analysis(result)), use_container_width=True)
+        st.pyplot(plot_btd_analysis(result), use_container_width=True)
 
         # Spatial map
         if 'latitude' in result.columns and 'longitude' in result.columns:
             st.markdown('<div class="section-header">Spatial distribution</div>', unsafe_allow_html=True)
             fig_sp = plot_spatial(result)
             if fig_sp:
-                st.pyplot(fig_to_bytes(fig_sp), use_container_width=True)
+                st.pyplot(fig_sp, use_container_width=True)
 
         # Results table
         st.markdown('<div class="section-header">Pixel-level results</div>', unsafe_allow_html=True)
